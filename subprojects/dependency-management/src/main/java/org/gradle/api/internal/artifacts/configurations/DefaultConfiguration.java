@@ -106,7 +106,6 @@ import org.gradle.api.specs.Spec;
 import org.gradle.api.specs.Specs;
 import org.gradle.api.tasks.TaskDependency;
 import org.gradle.configuration.internal.UserCodeApplicationContext;
-import org.gradle.internal.Actions;
 import org.gradle.internal.Cast;
 import org.gradle.internal.Describables;
 import org.gradle.internal.DisplayName;
@@ -116,7 +115,6 @@ import org.gradle.internal.ImmutableActionSet;
 import org.gradle.internal.UncheckedException;
 import org.gradle.internal.component.external.model.DefaultModuleComponentSelector;
 import org.gradle.internal.component.external.model.ProjectDerivedCapability;
-import org.gradle.internal.component.local.model.LocalComponentMetadata;
 import org.gradle.internal.component.model.DependencyMetadata;
 import org.gradle.internal.component.model.LocalComponentDependencyMetadata;
 import org.gradle.internal.deprecation.DeprecationLogger;
@@ -138,8 +136,6 @@ import org.gradle.util.Path;
 import org.gradle.util.internal.CollectionUtils;
 import org.gradle.util.internal.ConfigureUtil;
 import org.gradle.util.internal.WrapUtil;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import javax.annotation.Nullable;
 import java.io.File;
@@ -171,9 +167,7 @@ import static org.gradle.util.internal.ConfigureUtil.configure;
  * noted in {@link #isSpecialCaseOfChangingUsage(String, boolean)}}.  Initialization is complete when the {@link #roleAtCreation} field is set.
  */
 @SuppressWarnings("rawtypes")
-public class DefaultConfiguration extends AbstractFileCollection implements ConfigurationInternal, MutationValidator, ResettableConfiguration {
-    private static final Logger LOGGER = LoggerFactory.getLogger(DefaultConfiguration.class);
-
+public abstract class DefaultConfiguration extends AbstractFileCollection implements ConfigurationInternal, MutationValidator, ResettableConfiguration {
     private final ConfigurationResolver resolver;
     private final DependencyMetaDataProvider metaDataProvider;
     private final ComponentIdentifierFactory componentIdentifierFactory;
@@ -251,8 +245,6 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
 
     private final AtomicInteger copyCount = new AtomicInteger();
 
-    private Action<? super ConfigurationInternal> beforeLocking;
-
     private List<String> declarationAlternatives = ImmutableList.of();
     private List<String> resolutionAlternatives = ImmutableList.of();
 
@@ -267,33 +259,33 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
      * To create an instance, use {@link DefaultConfigurationFactory#create}.
      */
     public DefaultConfiguration(
-            DomainObjectContext domainObjectContext,
-            String name,
-            ConfigurationsProvider configurationsProvider,
-            ConfigurationResolver resolver,
-            ListenerBroadcast<DependencyResolutionListener> dependencyResolutionListeners,
-            ProjectDependencyObservedListener dependencyObservedBroadcast,
-            DependencyMetaDataProvider metaDataProvider,
-            ComponentIdentifierFactory componentIdentifierFactory,
-            DependencyLockingProvider dependencyLockingProvider,
-            Factory<ResolutionStrategyInternal> resolutionStrategyFactory,
-            FileCollectionFactory fileCollectionFactory,
-            BuildOperationExecutor buildOperationExecutor,
-            Instantiator instantiator,
-            NotationParser<Object, ConfigurablePublishArtifact> artifactNotationParser,
-            NotationParser<Object, Capability> capabilityNotationParser,
-            ImmutableAttributesFactory attributesFactory,
-            RootComponentMetadataBuilder rootComponentMetadataBuilder,
-            ResolveExceptionContextualizer exceptionContextualizer,
-            UserCodeApplicationContext userCodeApplicationContext,
-            ProjectStateRegistry projectStateRegistry,
-            WorkerThreadRegistry workerThreadRegistry,
-            DomainObjectCollectionFactory domainObjectCollectionFactory,
-            CalculatedValueContainerFactory calculatedValueContainerFactory,
-            DefaultConfigurationFactory defaultConfigurationFactory,
-            TaskDependencyFactory taskDependencyFactory,
-            ConfigurationRole roleAtCreation,
-            boolean lockUsage
+        DomainObjectContext domainObjectContext,
+        String name,
+        ConfigurationsProvider configurationsProvider,
+        ConfigurationResolver resolver,
+        ListenerBroadcast<DependencyResolutionListener> dependencyResolutionListeners,
+        ProjectDependencyObservedListener dependencyObservedBroadcast,
+        DependencyMetaDataProvider metaDataProvider,
+        ComponentIdentifierFactory componentIdentifierFactory,
+        DependencyLockingProvider dependencyLockingProvider,
+        Factory<ResolutionStrategyInternal> resolutionStrategyFactory,
+        FileCollectionFactory fileCollectionFactory,
+        BuildOperationExecutor buildOperationExecutor,
+        Instantiator instantiator,
+        NotationParser<Object, ConfigurablePublishArtifact> artifactNotationParser,
+        NotationParser<Object, Capability> capabilityNotationParser,
+        ImmutableAttributesFactory attributesFactory,
+        RootComponentMetadataBuilder rootComponentMetadataBuilder,
+        ResolveExceptionContextualizer exceptionContextualizer,
+        UserCodeApplicationContext userCodeApplicationContext,
+        ProjectStateRegistry projectStateRegistry,
+        WorkerThreadRegistry workerThreadRegistry,
+        DomainObjectCollectionFactory domainObjectCollectionFactory,
+        CalculatedValueContainerFactory calculatedValueContainerFactory,
+        DefaultConfigurationFactory defaultConfigurationFactory,
+        TaskDependencyFactory taskDependencyFactory,
+        ConfigurationRole roleAtCreation,
+        boolean lockUsage
     ) {
         super(taskDependencyFactory);
         this.userCodeApplicationContext = userCodeApplicationContext;
@@ -649,6 +641,11 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
         }
     }
 
+    @VisibleForTesting
+    protected InternalState getObservedState() {
+        return observedState;
+    }
+
     private void markParentsObserved(InternalState requestedState) {
         for (Configuration configuration : extendsFrom) {
             ((ConfigurationInternal) configuration).markAsObserved(requestedState);
@@ -664,7 +661,6 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
     private ResolveState resolveToStateOrLater(final InternalState requestedState) {
         assertIsResolvable();
         maybeEmitResolutionDeprecation();
-        logIfImproperConfiguration();
 
         ResolveState currentState = currentResolveState.get();
         if (currentState.state.compareTo(requestedState) >= 0) {
@@ -1136,17 +1132,6 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
     }
 
     @Override
-    public void beforeLocking(Action<? super ConfigurationInternal> action) {
-        if (canBeMutated) {
-            if (beforeLocking != null) {
-                beforeLocking = Actions.composite(beforeLocking, action);
-            } else {
-                beforeLocking = action;
-            }
-        }
-    }
-
-    @Override
     public boolean isCanBeMutated() {
         return canBeMutated;
     }
@@ -1164,17 +1149,12 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
     private List<? extends GradleException> preventFromFurtherMutation(boolean lenient) {
         // TODO This should use the same `MutationValidator` infrastructure that we use for other mutation types
         if (canBeMutated) {
-            if (beforeLocking != null) {
-                beforeLocking.execute(this);
-                beforeLocking = null;
-            }
             AttributeContainerInternal delegatee = configurationAttributes.asImmutable();
             configurationAttributes = new ImmutableAttributeContainerWithErrorMessage(delegatee, this.displayName);
             outgoing.preventFromFurtherMutation();
             canBeMutated = false;
 
             preventUsageMutation();
-            logIfImproperConfiguration();
 
             // We will only check unique attributes if this configuration is consumable, not resolvable, and has attributes itself
             if (mustHaveUniqueAttributes(this) && !this.getAttributes().isEmpty()) {
@@ -1345,10 +1325,9 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
     }
 
     private DefaultConfiguration newConfiguration(ConfigurationRole role) {
+        String newName = getNameWithCopySuffix();
         DetachedConfigurationsProvider configurationsProvider = new DetachedConfigurationsProvider();
         RootComponentMetadataBuilder rootComponentMetadataBuilder = this.rootComponentMetadataBuilder.withConfigurationsProvider(configurationsProvider);
-
-        String newName = getNameWithCopySuffix();
 
         Factory<ResolutionStrategyInternal> childResolutionStrategy = resolutionStrategy != null ? Factories.constant(resolutionStrategy.copy()) : resolutionStrategyFactory;
         DefaultConfiguration copiedConfiguration = defaultConfigurationFactory.create(
@@ -1356,8 +1335,7 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
             configurationsProvider,
             childResolutionStrategy,
             rootComponentMetadataBuilder,
-            role,
-            false
+            role
         );
         configurationsProvider.setTheOnlyConfiguration(copiedConfiguration);
         return copiedConfiguration;
@@ -1392,9 +1370,9 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
     }
 
     @Override
-    public LocalComponentMetadata toRootComponentMetaData() {
-        warnOnInvalidInternalAPIUsage("toRootComponentMetaData()", ProperMethodUsage.RESOLVABLE);
-        return rootComponentMetadataBuilder.toRootComponentMetaData();
+    public RootComponentMetadataBuilder.RootComponentState toRootComponent() {
+        warnOnInvalidInternalAPIUsage("toRootComponent()", ProperMethodUsage.RESOLVABLE);
+        return rootComponentMetadataBuilder.toRootComponent(getName());
     }
 
     @Override
@@ -1417,8 +1395,7 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
                     : DefaultMutableVersionConstraint.withVersion(lockedVersion);
                 ModuleComponentSelector selector = DefaultModuleComponentSelector.newSelector(DefaultModuleIdentifier.newId(lockedDependency.getGroup(), lockedDependency.getModule()), versionConstraint);
                 return new LocalComponentDependencyMetadata(
-                    componentIdentifier, selector, name, getAttributes(),
-                    ImmutableAttributes.EMPTY, null, Collections.emptyList(),  Collections.emptyList(),
+                    selector, ImmutableAttributes.EMPTY, null, Collections.emptyList(),  Collections.emptyList(),
                     false, false, false, true, false, true, getLockReason(strict, lockedVersion)
                 );
             });
@@ -1427,8 +1404,7 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
         Stream<LocalComponentDependencyMetadata> consistentResolutionConstraintMetadata = getConsistentResolutionConstraints().map(dc -> {
             ModuleComponentSelector selector = DefaultModuleComponentSelector.newSelector(DefaultModuleIdentifier.newId(dc.getGroup(), dc.getName()), dc.getVersionConstraint());
             return new LocalComponentDependencyMetadata(
-                componentIdentifier, selector, name, getAttributes(),
-                ImmutableAttributes.EMPTY, null, Collections.emptyList(), Collections.emptyList(),
+                selector, ImmutableAttributes.EMPTY, null, Collections.emptyList(), Collections.emptyList(),
                 false, false, false, true, false, true, dc.getReason()
             );
         });
@@ -1744,30 +1720,6 @@ public class DefaultConfiguration extends AbstractFileCollection implements Conf
     private void assertIsDeclarable() {
         if (!canBeDeclaredAgainst) {
             throw new IllegalStateException("Declaring dependencies for configuration '" + name + "' is not allowed as it is defined as 'canBeDeclared=false'.");
-        }
-    }
-
-    /**
-     * Check that the combination of consumable, resolvable and declarable flags is sensible.
-     * <p>
-     * This should only check configurations <strong>not</strong> created in the {@link ConfigurationRoles#LEGACY} role.
-     * <p>
-     * This method should be called only after all mutations are known to be complete.  This shouldn't do
-     * anything stronger than log to info, otherwise it will interrupt dependency reports. Many improper
-     * configurations are still in use, we can't just fail if one is detected here.
-     */
-    @SuppressWarnings("deprecation")
-    private void logIfImproperConfiguration() {
-        if (roleAtCreation != ConfigurationRoles.LEGACY) {
-            if (canBeConsumed && canBeResolved) {
-                LOGGER.info("The configuration " + identityPath.toString() + " is both resolvable and consumable. This is considered a legacy configuration and it will eventually only be possible to be one of these.");
-            }
-
-            if (canBeConsumed && canBeDeclaredAgainst) {
-                LOGGER.info("The configuration " + identityPath.toString() + " is both consumable and declarable. This combination is incorrect, only one of these flags should be set.");
-            }
-
-            // canBeDeclared && canBeResolved is a valid and expected combination
         }
     }
 

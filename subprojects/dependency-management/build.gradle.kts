@@ -63,6 +63,7 @@ dependencies {
     testImplementation(testFixtures(project(":base-services")))
     testImplementation(testFixtures(project(":snapshots")))
     testImplementation(testFixtures(project(":execution")))
+    testImplementation(testFixtures(project(":problems")))
 
     integTestImplementation(project(":build-option"))
     integTestImplementation(libs.jansi)
@@ -111,7 +112,9 @@ dependencies {
     integTestImplementation(project(":launcher")) {
         because("Daemon fixtures need DaemonRegistry")
     }
-    integTestDistributionRuntimeOnly(project(":distributions-basics"))
+    integTestDistributionRuntimeOnly(project(":distributions-jvm")) {
+        because("Need access to java platforms")
+    }
     crossVersionTestDistributionRuntimeOnly(project(":distributions-core"))
     crossVersionTestImplementation(libs.jettyWebApp)
 }
@@ -123,7 +126,7 @@ packageCycles {
 testFilesCleanup.reportOnly = true
 
 tasks.clean {
-    val testFiles = layout.buildDirectory.dir("tmp/test files")
+    val testFiles = layout.buildDirectory.dir("tmp/teŝt files")
     doFirst {
         // On daemon crash, read-only cache tests can leave read-only files around.
         // clean now takes care of those files as well

@@ -36,7 +36,7 @@ import static org.hamcrest.MatcherAssert.assertThat
 
 abstract class DistributionIntegrationSpec extends AbstractIntegrationSpec {
 
-    protected static final THIRD_PARTY_LIB_COUNT = 151
+    protected static final THIRD_PARTY_LIB_COUNT = 149
 
     @Rule public final PreconditionVerifier preconditionVerifier = new PreconditionVerifier()
 
@@ -50,14 +50,14 @@ abstract class DistributionIntegrationSpec extends AbstractIntegrationSpec {
      * Change this whenever you add or remove subprojects for distribution core modules (lib/).
      */
     int getCoreLibJarsCount() {
-        45
+        44
     }
 
     /**
      * Change this whenever you add or remove subprojects for distribution-packaged plugins (lib/plugins).
      */
     int getPackagedPluginsJarCount() {
-        46
+        51
     }
 
     /**
@@ -87,9 +87,9 @@ abstract class DistributionIntegrationSpec extends AbstractIntegrationSpec {
         size <= getMaxDistributionSizeBytes()
     }
 
-    def "no duplicate entries"() {
+    def "no duplicate jar entries in distribution"() {
         given:
-        def entriesByPath = zipEntries.findAll { !it.name.contains('/META-INF/services/') }.groupBy { it.name }
+        def entriesByPath = zipEntries.groupBy { it.name }
         def dupes = entriesByPath.findAll { it.value.size() > 1 }
 
         when:

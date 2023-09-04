@@ -18,8 +18,6 @@ package org.gradle.api.internal.artifacts.transform;
 
 import org.gradle.api.Describable;
 import org.gradle.api.artifacts.ResolveException;
-import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
-import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 import org.gradle.api.attributes.AttributeContainer;
 import org.gradle.api.internal.artifacts.ivyservice.DefaultLenientConfiguration;
 import org.gradle.api.internal.artifacts.ivyservice.resolveengine.artifact.ResolvableArtifact;
@@ -46,9 +44,9 @@ import org.gradle.operations.dependencies.transforms.ExecutePlannedTransformStep
 import org.gradle.operations.dependencies.transforms.PlannedTransformStepIdentity;
 import org.gradle.operations.dependencies.variants.Capability;
 import org.gradle.operations.dependencies.variants.ComponentIdentifier;
-import org.gradle.operations.dependencies.variants.OpaqueComponentIdentifier;
 
 import javax.annotation.Nullable;
+import javax.annotation.OverridingMethodsMustInvokeSuper;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -104,7 +102,7 @@ public abstract class TransformStepNode extends CreationOrderedNode implements S
     private PlannedTransformStepIdentity createIdentity() {
         String consumerBuildPath = transformStep.getOwningProject().getBuildPath().toString();
         String consumerProjectPath = transformStep.getOwningProject().getProjectPath().toString();
-        ComponentIdentifier componentId = getComponentIdentifier(targetComponentVariant.getComponentId());
+        ComponentIdentifier componentId = ComponentToOperationConverter.convertComponentIdentifier(targetComponentVariant.getComponentId());
         Map<String, String> sourceAttributes = AttributesToMapConverter.convertToMap(this.sourceAttributes);
         Map<String, String> targetAttributes = AttributesToMapConverter.convertToMap(targetComponentVariant.getAttributes());
         List<Capability> capabilities = targetComponentVariant.getCapabilities().stream()
@@ -146,68 +144,6 @@ public abstract class TransformStepNode extends CreationOrderedNode implements S
                 return getGroup() + ":" + getName() + (getVersion() == null ? "" : (":" + getVersion()));
             }
         };
-    }
-
-    private static ComponentIdentifier getComponentIdentifier(org.gradle.api.artifacts.component.ComponentIdentifier componentId) {
-        if (componentId instanceof ProjectComponentIdentifier) {
-            ProjectComponentIdentifier projectComponentIdentifier = (ProjectComponentIdentifier) componentId;
-            return new org.gradle.operations.dependencies.variants.ProjectComponentIdentifier() {
-                @Override
-                public String getBuildPath() {
-                    return projectComponentIdentifier.getBuild().getBuildPath();
-                }
-
-                @Override
-                public String getProjectPath() {
-                    return projectComponentIdentifier.getProjectPath();
-                }
-
-                @Override
-                public String toString() {
-                    return projectComponentIdentifier.getDisplayName();
-                }
-            };
-        } else if (componentId instanceof ModuleComponentIdentifier) {
-            ModuleComponentIdentifier moduleComponentIdentifier = (ModuleComponentIdentifier) componentId;
-            return new org.gradle.operations.dependencies.variants.ModuleComponentIdentifier() {
-                @Override
-                public String getGroup() {
-                    return moduleComponentIdentifier.getGroup();
-                }
-
-                @Override
-                public String getModule() {
-                    return moduleComponentIdentifier.getModule();
-                }
-
-                @Override
-                public String getVersion() {
-                    return moduleComponentIdentifier.getVersion();
-                }
-
-                @Override
-                public String toString() {
-                    return moduleComponentIdentifier.getDisplayName();
-                }
-            };
-        } else {
-            return new OpaqueComponentIdentifier() {
-                @Override
-                public String getDisplayName() {
-                    return componentId.getDisplayName();
-                }
-
-                @Override
-                public String getClassName() {
-                    return componentId.getClass().getName();
-                }
-
-                @Override
-                public String toString() {
-                    return componentId.getDisplayName();
-                }
-            };
-        }
     }
 
     public ResolvableArtifact getInputArtifact() {
@@ -293,23 +229,21 @@ public abstract class TransformStepNode extends CreationOrderedNode implements S
             return result;
         }
 
-        private class TransformInitialArtifact implements ValueCalculator<TransformStepSubject> {
-            private final BuildOperationExecutor buildOperationExecutor;
+        protected class TransformInitialArtifact extends AbstractTransformArtifacts {
 
             public TransformInitialArtifact(BuildOperationExecutor buildOperationExecutor) {
-                this.buildOperationExecutor = buildOperationExecutor;
+                super(buildOperationExecutor);
             }
 
             @Override
             public void visitDependencies(TaskDependencyResolveContext context) {
-                context.add(transformStep);
-                context.add(upstreamDependencies);
+                super.visitDependencies(context);
                 context.add(artifact);
             }
 
             @Override
-            public TransformStepSubject calculateValue(NodeExecutionContext context) {
-                return buildOperationExecutor.call(new TransformStepBuildOperation() {
+            protected TransformStepBuildOperation createBuildOperation(NodeExecutionContext context) {
+                return new TransformStepBuildOperation() {
                     @Override
                     protected TransformStepSubject transform() {
                         TransformStepSubject initialSubject;
@@ -331,7 +265,7 @@ public abstract class TransformStepNode extends CreationOrderedNode implements S
                     protected String describeSubject() {
                         return artifact.getId().getDisplayName();
                     }
-                });
+                };
             }
         }
     }
@@ -371,23 +305,21 @@ public abstract class TransformStepNode extends CreationOrderedNode implements S
             super.executeIfNotAlready();
         }
 
-        private class TransformPreviousArtifacts implements ValueCalculator<TransformStepSubject> {
-            private final BuildOperationExecutor buildOperationExecutor;
+        protected class TransformPreviousArtifacts extends AbstractTransformArtifacts {
 
             public TransformPreviousArtifacts(BuildOperationExecutor buildOperationExecutor) {
-                this.buildOperationExecutor = buildOperationExecutor;
+                super(buildOperationExecutor);
             }
 
             @Override
             public void visitDependencies(TaskDependencyResolveContext context) {
-                context.add(transformStep);
-                context.add(upstreamDependencies);
+                super.visitDependencies(context);
                 context.add(new DefaultTransformNodeDependency(Collections.singletonList(previousTransformStepNode)));
             }
 
             @Override
-            public TransformStepSubject calculateValue(NodeExecutionContext context) {
-                return buildOperationExecutor.call(new TransformStepBuildOperation() {
+            protected TransformStepBuildOperation createBuildOperation(NodeExecutionContext context) {
+                return new TransformStepBuildOperation() {
                     @Override
                     protected TransformStepSubject transform() {
                         return previousTransformStepNode.getTransformedSubject()
@@ -403,12 +335,38 @@ public abstract class TransformStepNode extends CreationOrderedNode implements S
                             .map(Describable::getDisplayName)
                             .getOrMapFailure(Throwable::getMessage);
                     }
-                });
+                };
             }
         }
     }
 
-    private abstract class TransformStepBuildOperation implements CallableBuildOperation<TransformStepSubject> {
+    protected abstract class AbstractTransformArtifacts implements ValueCalculator<TransformStepSubject> {
+        private final BuildOperationExecutor buildOperationExecutor;
+
+        protected AbstractTransformArtifacts(BuildOperationExecutor buildOperationExecutor) {
+            this.buildOperationExecutor = buildOperationExecutor;
+        }
+
+        @OverridingMethodsMustInvokeSuper
+        @Override
+        public void visitDependencies(TaskDependencyResolveContext context) {
+            context.add(transformStep);
+            context.add(upstreamDependencies);
+        }
+
+        @Override
+        public TransformStepSubject calculateValue(NodeExecutionContext context) {
+            TransformStepBuildOperation buildOperation = createBuildOperation(context);
+            ProjectInternal owningProject = transformStep.getOwningProject();
+            return owningProject == null
+                ? buildOperation.transform()
+                : buildOperationExecutor.call(buildOperation);
+        }
+
+        protected abstract TransformStepBuildOperation createBuildOperation(NodeExecutionContext context);
+    }
+
+    protected abstract class TransformStepBuildOperation implements CallableBuildOperation<TransformStepSubject> {
 
         @UsedByScanPlugin("The string is used for filtering out artifact transform logs in Gradle Enterprise")
         private static final String TRANSFORMING_PROGRESS_PREFIX = "Transforming ";

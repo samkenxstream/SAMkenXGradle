@@ -18,8 +18,8 @@ package org.gradle.testing.junit.platform
 
 import org.gradle.api.internal.tasks.testing.junit.JUnitSupport
 import org.gradle.integtests.fixtures.DefaultTestExecutionResult
-import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
-import spock.lang.IgnoreIf
+import org.gradle.test.precondition.Requires
+import org.gradle.test.preconditions.IntegTestPreconditions
 import spock.lang.Issue
 import spock.lang.Timeout
 
@@ -424,7 +424,7 @@ public class StaticInnerTest {
 
     // When running embedded with test distribution, the remote distribution has a newer version of
     // junit-platform-launcher which is not compatible with the junit jupiter jars we test against.
-    @IgnoreIf({ GradleContextualExecuter.embedded })
+    @Requires(IntegTestPreconditions.NotEmbeddedExecutor)
     // JUnitCoverage is quite limited and doesn't test older versions or the newest version.
     // Future work is planned to improve junit test rewriting, and at the same time should verify
     // greater ranges of junit platform testing. This is only reproducible with the newest version
@@ -460,5 +460,52 @@ public class StaticInnerTest {
 
         where:
         version << ["5.9.2", "5.6.3"]
+    }
+
+    def 'properly fails when engine fails during execution'() {
+        given:
+        buildFile << """
+            dependencies {
+                testImplementation 'org.junit.platform:junit-platform-engine:${LATEST_PLATFORM_VERSION}'
+            }
+            test {
+                afterSuite { descriptor, result ->
+                    println("afterSuite: \$descriptor -> \$result")
+                }
+            }
+        """
+        file('src/test/java/EngineFailingExecution.java') << '''
+            import org.junit.platform.engine.*;
+            import org.junit.platform.engine.support.descriptor.*;
+            public class EngineFailingExecution implements TestEngine {
+                @Override
+                public String getId() {
+                    return "EngineFailingExecution";
+                }
+
+                @Override
+                public TestDescriptor discover(EngineDiscoveryRequest discoveryRequest, UniqueId uniqueId) {
+                    return new EngineDescriptor(uniqueId, getId()) {
+                        @Override
+                        public boolean mayRegisterTests() {
+                            return true; // to avoid the engine from being skipped
+                        }
+                    };
+                }
+
+                @Override
+                public void execute(ExecutionRequest request) {
+                    throw new RuntimeException("oops");
+                }
+            }
+        '''
+        file('src/test/resources/META-INF/services/org.junit.platform.engine.TestEngine') << 'EngineFailingExecution'
+
+        when:
+        fails('test')
+
+        then:
+        failureCauseContains('There were failing tests.')
+        outputContains("afterSuite: Test class UnknownClass -> FAILURE")
     }
 }

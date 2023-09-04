@@ -24,6 +24,7 @@ import org.gradle.api.internal.project.ProjectState
 import org.gradle.api.internal.tasks.TaskContainerInternal
 import org.gradle.api.specs.Specs
 import org.gradle.api.tasks.TaskCollection
+import org.gradle.api.tasks.testing.AbstractTestTask
 import org.gradle.api.tasks.testing.Test
 import org.gradle.api.tasks.testing.TestFilter
 import org.gradle.execution.EntryTaskSelector
@@ -121,7 +122,6 @@ class TestExecutionBuildTaskSchedulerTest extends Specification {
         then:
         1 * testFilter.includeTest(expectedClassFilter, expectedMethodFilter)
 
-        1 * testTask.setIgnoreFailures(true)
         1 * testFilter.setFailOnNoMatchingTests(false)
         1 * outputsInternal.upToDateWhen(Specs.SATISFIES_NONE)
 
@@ -147,7 +147,7 @@ class TestExecutionBuildTaskSchedulerTest extends Specification {
         _ * tasksContainerInternal.findByPath(TEST_TASK_NAME) >> testTask
         TaskCollection<Test> testTaskCollection = Mock()
         _ * testTaskCollection.iterator() >> [testTask].iterator()
-        _ * tasksContainerInternal.withType(Test) >> testTaskCollection
+        _ * tasksContainerInternal.withType(AbstractTestTask) >> testTaskCollection
         _ * testTask.getOutputs() >> outputsInternal
         _ * testTask.getPath() >> TEST_TASK_NAME
         _ * taskSelectionResult.collectTasks(_) >> { args ->

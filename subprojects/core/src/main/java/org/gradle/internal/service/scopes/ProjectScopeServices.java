@@ -101,7 +101,6 @@ import org.gradle.tooling.provider.model.internal.DefaultToolingModelBuilderRegi
 import org.gradle.util.Path;
 
 import javax.annotation.Nullable;
-import java.io.File;
 
 /**
  * Contains the services for a given project.
@@ -168,7 +167,7 @@ public class ProjectScopeServices extends DefaultServiceRegistry {
     }
 
     protected TemporaryFileProvider createTemporaryFileProvider() {
-        return new DefaultTemporaryFileProvider(() -> new File(project.getBuildDir(), "tmp"));
+        return new DefaultTemporaryFileProvider(() -> project.getLayout().getBuildDirectory().dir("tmp").get().getAsFile());
     }
 
     protected Factory<AntBuilder> createAntBuilderFactory() {
@@ -221,7 +220,6 @@ public class ProjectScopeServices extends DefaultServiceRegistry {
     protected ModelRegistry createModelRegistry(ModelRuleExtractor ruleExtractor) {
         return new DefaultModelRegistry(ruleExtractor, project.getPath(), run -> project.getOwner().applyToMutableState(p -> run.run()));
     }
-
 
     protected ScriptHandlerInternal createScriptHandler(DependencyManagementServices dependencyManagementServices, FileResolver fileResolver, FileCollectionFactory fileCollectionFactory, DependencyMetaDataProvider dependencyMetaDataProvider, ScriptClassPathResolver scriptClassPathResolver) {
         ScriptHandlerFactory factory = new DefaultScriptHandlerFactory(

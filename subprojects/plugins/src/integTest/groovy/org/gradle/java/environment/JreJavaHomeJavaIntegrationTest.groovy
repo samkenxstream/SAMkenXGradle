@@ -19,12 +19,12 @@ package org.gradle.java.environment
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.AvailableJavaHomes
 import org.gradle.test.precondition.Requires
+import org.gradle.test.preconditions.IntegTestPreconditions
 import org.gradle.test.preconditions.UnitTestPreconditions
-import spock.lang.IgnoreIf
 
 class JreJavaHomeJavaIntegrationTest extends AbstractIntegrationSpec {
 
-    @IgnoreIf({ AvailableJavaHomes.bestJre == null })
+    @Requires(IntegTestPreconditions.BestJreAvailable)
     def "java compilation works in forking mode = #forkMode when JAVA_HOME is set to JRE"() {
         given:
         def jreJavaHome = AvailableJavaHomes.bestJre
@@ -37,7 +37,7 @@ class JreJavaHomeJavaIntegrationTest extends AbstractIntegrationSpec {
         }
         """
         when:
-        executer.withEnvironmentVars("JAVA_HOME": jreJavaHome.absolutePath).withTasks("compileJava").run().output
+        executer.withJavaHome(jreJavaHome.absolutePath).withTasks("compileJava").run().output
         then:
         javaClassFile("org/test/JavaClazz.class").exists()
 
